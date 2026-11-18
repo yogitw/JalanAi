@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">JalanAI</string>
+    <string name="cd_auth_hero">Ilustrasi pengawasan jalan berbasis kecerdasan buatan</string>
+    <string name="cd_empty_illustration">Ilustrasi kamera pemantau kondisi permukaan jalan</string>
+    <string name="auth_tagline">Pemantauan video jalan berbasis AI untuk prediksi penurunan kualitas dan pemeliharaan preventif tepat waktu.</string>
+    <string name="auth_capabilities_title">Kemampuan Utama Sistem</string>
+    <string name="auth_feat_1_title">Pemrosesan Rekaman Video Jalan</string>
+    <string name="auth_feat_1_desc">Ekstraksi frame otomatis dari video CCTV, dashcam, atau kamera lapangan untuk inspeksi visual.</string>
+    <string name="auth_feat_2_title">Deteksi Kerusakan &amp; Skor PCI AI</string>
+    <string name="auth_feat_2_desc">Identifikasi lubang, retak buaya, alur roda, serta proyeksi kurva penurunan kualitas 12 bulan.</string>
+    <string name="auth_feat_3_title">Penjadwalan Bulan Perbaikan Tepat</string>
+    <string name="auth_feat_3_desc">Rekomendasi bulan terbaik pemeliharaan preventif sebelum perkerasan mencapai fase rusak berat.</string>
+    <string name="auth_google_button">Masuk dengan Google (Cloud Sync)</string>
+    <string name="auth_demo_button">Masuk Mode Lapangan Kebun (Offline / Lokal)</string>
+    <string name="auth_signing_in">Menghubungkan akun...</string>
+    <string name="auth_cloud_note">Mode Lapangan Kebun menyimpan hasil inspeksi &amp; jadwal perbaikan secara permanen di database lokal (Room) tanpa perlu akun Google atau internet. Masuk Google opsional untuk sinkronisasi ke Cloud.</string>
+</resources>

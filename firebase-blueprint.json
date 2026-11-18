@@ -1,0 +1,146 @@
+{
+  "entities": {
+    "RoadInspection": {
+      "title": "RoadInspection",
+      "description": "AI road surveillance video analysis record with detected pavement damages, 12-month PCI degradation & Google rainfall forecast, and preventive maintenance schedule.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase user UID owning this road inspection."
+        },
+        "roadName": {
+          "type": "string",
+          "description": "Name or code of the inspected road corridor."
+        },
+        "segmentLocation": {
+          "type": "string",
+          "description": "Optional kilometer marker or segment location description."
+        },
+        "regionName": {
+          "type": "string",
+          "description": "Region/regency/province used for Google rainfall lookup."
+        },
+        "trafficIntensity": {
+          "type": "string",
+          "enum": ["RENDAH", "SEDANG", "TINGGI"],
+          "description": "Estimated daily traffic load level."
+        },
+        "videoSourceLabel": {
+          "type": "string",
+          "description": "Video source label and duration summary."
+        },
+        "framesAnalyzed": {
+          "type": "integer",
+          "description": "Number of extracted video keyframes analyzed by AI."
+        },
+        "roadSummary": {
+          "type": "string",
+          "description": "AI visual summary of pavement condition from surveillance frames."
+        },
+        "pciScore": {
+          "type": "integer",
+          "description": "Current Pavement Condition Index score from 0 to 100."
+        },
+        "iriEstimate": {
+          "type": "number",
+          "description": "Estimated International Roughness Index in m/km."
+        },
+        "conditionCategory": {
+          "type": "string",
+          "enum": ["BAIK", "SEDANG", "RUSAK_RINGAN", "RUSAK_BERAT"],
+          "description": "Classified road surface condition category."
+        },
+        "optimalMaintenanceMonth": {
+          "type": "string",
+          "description": "Recommended month and year for timely preventive maintenance."
+        },
+        "urgencyWindow": {
+          "type": "string",
+          "description": "Recommended action timeframe before critical degradation."
+        },
+        "preventiveMethod": {
+          "type": "string",
+          "description": "Recommended preventive engineering treatment method."
+        },
+        "maintenanceRationale": {
+          "type": "string",
+          "description": "AI engineering rationale explaining why the recommended month is optimal considering rainfall and degradation."
+        },
+        "rainfallSummary": {
+          "type": "string",
+          "description": "Summary of Google regional monthly rainfall pattern affecting repair scheduling."
+        },
+        "rainfallSourceNote": {
+          "type": "string",
+          "description": "Attribution note for Google Search rainfall grounding sources."
+        },
+        "costSavingsPercent": {
+          "type": "integer",
+          "description": "Estimated lifecycle cost savings percentage from timely preventive maintenance."
+        },
+        "maintenanceStatus": {
+          "type": "string",
+          "enum": ["TERJADWAL", "PROSES", "SELESAI"],
+          "description": "Current preventive maintenance execution status."
+        },
+        "maintenanceNotes": {
+          "type": "string",
+          "description": "Optional field engineer notes for the maintenance schedule."
+        },
+        "damages": {
+          "type": "array",
+          "description": "Bounded list (max 10) of road damages detected in surveillance frames."
+        },
+        "forecast": {
+          "type": "array",
+          "description": "Bounded list (max 13) of monthly predicted PCI degradation and rainfall (mm) points."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created (clients must submit FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated (clients must submit FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "roadName",
+        "segmentLocation",
+        "regionName",
+        "trafficIntensity",
+        "videoSourceLabel",
+        "framesAnalyzed",
+        "roadSummary",
+        "pciScore",
+        "iriEstimate",
+        "conditionCategory",
+        "optimalMaintenanceMonth",
+        "urgencyWindow",
+        "preventiveMethod",
+        "maintenanceRationale",
+        "rainfallSummary",
+        "rainfallSourceNote",
+        "costSavingsPercent",
+        "maintenanceStatus",
+        "maintenanceNotes",
+        "damages",
+        "forecast",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/inspections/{inspectionId}": {
+      "schema": {
+        "$ref": "#/entities/RoadInspection"
+      },
+      "description": "User-scoped road surveillance AI inspection reports and rainfall-aware preventive maintenance schedules."
+    }
+  }
+}

@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidRoadInspection(data, userId) {
+      return data.userId is string &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.roadName is string && data.roadName.size() >= 2 && data.roadName.size() <= 120 &&
+             data.segmentLocation is string && data.segmentLocation.size() <= 120 &&
+             data.regionName is string && data.regionName.size() <= 100 &&
+             data.trafficIntensity in ['RENDAH', 'SEDANG', 'TINGGI'] &&
+             data.videoSourceLabel is string && data.videoSourceLabel.size() >= 1 && data.videoSourceLabel.size() <= 120 &&
+             data.framesAnalyzed is int && data.framesAnalyzed >= 1 && data.framesAnalyzed <= 12 &&
+             data.roadSummary is string && data.roadSummary.size() >= 1 && data.roadSummary.size() <= 1000 &&
+             data.pciScore is int && data.pciScore >= 0 && data.pciScore <= 100 &&
+             (data.iriEstimate is int || data.iriEstimate is float) && data.iriEstimate >= 0 && data.iriEstimate <= 25 &&
+             data.conditionCategory in ['BAIK', 'SEDANG', 'RUSAK_RINGAN', 'RUSAK_BERAT'] &&
+             data.optimalMaintenanceMonth is string && data.optimalMaintenanceMonth.size() >= 3 && data.optimalMaintenanceMonth.size() <= 40 &&
+             data.urgencyWindow is string && data.urgencyWindow.size() >= 2 && data.urgencyWindow.size() <= 60 &&
+             data.preventiveMethod is string && data.preventiveMethod.size() >= 2 && data.preventiveMethod.size() <= 200 &&
+             data.maintenanceRationale is string && data.maintenanceRationale.size() >= 2 && data.maintenanceRationale.size() <= 1000 &&
+             data.rainfallSummary is string && data.rainfallSummary.size() <= 600 &&
+             data.rainfallSourceNote is string && data.rainfallSourceNote.size() <= 300 &&
+             data.costSavingsPercent is int && data.costSavingsPercent >= 0 && data.costSavingsPercent <= 100 &&
+             data.maintenanceStatus in ['TERJADWAL', 'PROSES', 'SELESAI'] &&
+             data.maintenanceNotes is string && data.maintenanceNotes.size() <= 300 &&
+             data.damages is list && data.damages.size() <= 10 &&
+             (data.damages.size() == 0 || data.damages[0] is map) &&
+             data.forecast is list && data.forecast.size() <= 13 &&
+             (data.forecast.size() == 0 || data.forecast[0] is map) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId}/inspections/{inspectionId} {
+      allow get: if isOwner(userId) && isValidId(inspectionId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(inspectionId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'roadName', 'segmentLocation', 'regionName', 'trafficIntensity',
+                         'videoSourceLabel', 'framesAnalyzed', 'roadSummary', 'pciScore',
+                         'iriEstimate', 'conditionCategory', 'optimalMaintenanceMonth',
+                         'urgencyWindow', 'preventiveMethod', 'maintenanceRationale',
+                         'rainfallSummary', 'rainfallSourceNote',
+                         'costSavingsPercent', 'maintenanceStatus', 'maintenanceNotes',
+                         'damages', 'forecast', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'roadName', 'segmentLocation', 'regionName', 'trafficIntensity',
+                         'videoSourceLabel', 'framesAnalyzed', 'roadSummary', 'pciScore',
+                         'iriEstimate', 'conditionCategory', 'optimalMaintenanceMonth',
+                         'urgencyWindow', 'preventiveMethod', 'maintenanceRationale',
+                         'rainfallSummary', 'rainfallSourceNote',
+                         'costSavingsPercent', 'maintenanceStatus', 'maintenanceNotes',
+                         'damages', 'forecast', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidRoadInspection(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(inspectionId) &&
+                       isValidRoadInspection(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'maintenanceStatus', 'optimalMaintenanceMonth', 'maintenanceNotes', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(inspectionId);
+    }
+  }
+}

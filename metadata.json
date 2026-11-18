@@ -1,0 +1,6 @@
+{
+  "name": "JalanAI",
+  "description": "Aplikasi AI pemantau rekaman video pengawasan jalan untuk deteksi kerusakan, prediksi penurunan kualitas, dan jadwal pemeliharaan preventif.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
