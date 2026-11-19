@@ -10,8 +10,7 @@
     <string name="auth_feat_2_desc">Identifikasi lubang, retak buaya, alur roda, serta proyeksi kurva penurunan kualitas 12 bulan.</string>
     <string name="auth_feat_3_title">Penjadwalan Bulan Perbaikan Tepat</string>
     <string name="auth_feat_3_desc">Rekomendasi bulan terbaik pemeliharaan preventif sebelum perkerasan mencapai fase rusak berat.</string>
-    <string name="auth_google_button">Masuk dengan Google (Cloud Sync)</string>
-    <string name="auth_demo_button">Masuk Mode Lapangan Kebun (Offline / Lokal)</string>
+    <string name="auth_google_button">Masuk dengan Google (Database Bersama)</string>
     <string name="auth_signing_in">Menghubungkan akun...</string>
-    <string name="auth_cloud_note">Mode Lapangan Kebun menyimpan hasil inspeksi &amp; jadwal perbaikan secara permanen di database lokal (Room) tanpa perlu akun Google atau internet. Masuk Google opsional untuk sinkronisasi ke Cloud.</string>
+    <string name="auth_cloud_note">Semua petugas Kebun Sei Rokan yang masuk dengan Google terhubung ke satu database Cloud bersama secara real-time, dengan cadangan antrean otomatis saat sinyal kebun terputus.</string>
 </resources>

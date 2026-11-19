@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Dashboard
@@ -40,7 +39,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,34 +132,16 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 @Composable
 fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
-    var isDemoMode by rememberSaveable { mutableStateOf(false) }
-
     val user = currentUser
-    LaunchedEffect(user) {
-        if (user != null) {
-            isDemoMode = false
-        }
-    }
 
-    if (user == null && !isDemoMode) {
-        AuthScreen(
-            onAuthSuccess = { isDemoMode = false },
-            onEnterDemoMode = { isDemoMode = true }
-        )
-    } else if (user != null) {
+    if (user == null) {
+        AuthScreen(onAuthSuccess = { })
+    } else {
+        val displayName = user.displayName?.takeIf { it.isNotBlank() } ?: "Petugas Kebun"
         key(user.uid) {
             MainShellScreen(
                 currentUserId = user.uid,
-                userDisplayName = user.displayName ?: user.email ?: "Pengguna",
-                onExitDemoToSignIn = { }
-            )
-        }
-    } else {
-        key("field_local") {
-            MainShellScreen(
-                currentUserId = null,
-                userDisplayName = "Mode Lapangan Kebun (Lokal)",
-                onExitDemoToSignIn = { isDemoMode = false }
+                userDisplayName = displayName
             )
         }
     }
@@ -170,13 +150,11 @@ fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainShellScreen(
-    currentUserId: String?,
-    userDisplayName: String,
-    onExitDemoToSignIn: () -> Unit
+    currentUserId: String,
+    userDisplayName: String
 ) {
-    val sessionKey = currentUserId ?: "field_local"
     val viewModel: JalanAiViewModel = viewModel(
-        key = sessionKey,
+        key = currentUserId,
         factory = viewModelFactory {
             initializer {
                 val app = checkNotNull(this[APPLICATION_KEY]) {
@@ -184,13 +162,9 @@ private fun MainShellScreen(
                 }
                 val localDb = JalanAiDatabase.getInstance(app)
                 val localRepo = LocalRoadInspectionRepository(localDb.roadInspectionDao())
-                val cloudRepo = if (!currentUserId.isNullOrBlank()) {
-                    val databaseId = app.getString(R.string.firestore_database_id)
-                    val db = FirebaseFirestore.getInstance(databaseId)
-                    RoadInspectionRepository(db)
-                } else {
-                    null
-                }
+                val databaseId = app.getString(R.string.firestore_database_id)
+                val db = FirebaseFirestore.getInstance(databaseId)
+                val cloudRepo = RoadInspectionRepository(db)
                 JalanAiViewModel(
                     localRepository = localRepo,
                     cloudRepository = cloudRepo,
@@ -198,6 +172,7 @@ private fun MainShellScreen(
                     offlineAnalyzer = OfflineFieldAnalyzer(),
                     frameExtractor = VideoFrameExtractor(app),
                     currentUserId = currentUserId,
+                    currentUserName = userDisplayName,
                     isOnlineFlow = NetworkStatusObserver.observeIsOnline(app)
                 )
             }
@@ -258,27 +233,14 @@ private fun MainShellScreen(
                             containerColor = MaterialTheme.colorScheme.background
                         ),
                         actions = {
-                            if (viewModel.isLocalFieldMode) {
-                                TextButton(
-                                    onClick = onExitDemoToSignIn,
-                                    modifier = Modifier.testTag("demo_login_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Login,
-                                        contentDescription = null
-                                    )
-                                    Text(" Masuk Google")
-                                }
-                            } else {
-                                IconButton(
-                                    onClick = { showSignOutDialog = true },
-                                    modifier = Modifier.testTag("sign_out_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Logout,
-                                        contentDescription = "Keluar akun"
-                                    )
-                                }
+                            IconButton(
+                                onClick = { showSignOutDialog = true },
+                                modifier = Modifier.testTag("sign_out_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = "Keluar akun"
+                                )
                             }
                         }
                     )
@@ -332,21 +294,9 @@ private fun MainShellScreen(
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    if ((viewModel.isLocalFieldMode || !isOnline) && !isDetailRoute) {
-                        val bannerText = when {
-                            viewModel.isLocalFieldMode && isOnline ->
-                                "Mode Lapangan Kebun • Tersimpan permanen di Room lokal • AI Online"
-                            viewModel.isLocalFieldMode && !isOnline ->
-                                "Mode Offline Kebun • Tersimpan permanen di Room lokal • Tanpa Internet"
-                            else ->
-                                "Sedang Offline • Inspeksi baru disimpan lokal ke Room hingga koneksi kembali"
-                        }
+                    if (!isOnline && !isDetailRoute) {
                         Surface(
-                            color = if (isOnline) {
-                                MaterialTheme.colorScheme.secondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            },
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -357,13 +307,9 @@ private fun MainShellScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = bannerText,
+                                    text = "Sinyal Terputus • Laporan masuk antrean & otomatis terkirim ke Cloud Bersama saat online",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (isOnline) {
-                                        MaterialTheme.colorScheme.onSecondaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onTertiaryContainer
-                                    }
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
                                 )
                             }
                         }
@@ -377,7 +323,6 @@ private fun MainShellScreen(
                         composable(ROUTE_DASHBOARD) {
                             DashboardScreen(
                                 inspectionsState = inspectionsState,
-                                isLocalFieldMode = viewModel.isLocalFieldMode,
                                 isOnline = isOnline,
                                 unsyncedLocalCount = unsyncedLocalCount,
                                 isSyncing = isSyncing,
@@ -390,12 +335,12 @@ private fun MainShellScreen(
                         composable(ROUTE_ANALYZE) {
                             AnalyzeVideoScreen(
                                 analysisState = analysisState,
-                                isLocalFieldMode = viewModel.isLocalFieldMode,
                                 isOnline = isOnline,
                                 onLoadVideoUri = viewModel::loadVideoFromUri,
                                 onLoadImageUri = viewModel::loadImageFrameFromUri,
                                 onLoadLiveFrames = viewModel::loadLiveCapturedFrames,
                                 onRunAiAnalysis = viewModel::runAiAnalysis,
+                                onRunOfflineAnalysis = viewModel::runOfflineAnalysis,
                                 onSaveAnalysis = viewModel::saveCurrentAnalysis,
                                 onReset = viewModel::resetAnalysis,
                                 onOpenSavedDetail = { id -> navController.navigate("detail/$id") }
@@ -416,8 +361,11 @@ private fun MainShellScreen(
                             val item = (inspectionsState as? InspectionsUiState.Success)
                                 ?.items
                                 ?.firstOrNull { it.id == id }
+                            val canDelete = item != null &&
+                                (item.userId == currentUserId || item.id.startsWith("local_"))
                             InspectionDetailScreen(
                                 inspection = item,
+                                canDelete = canDelete,
                                 onBack = { navController.popBackStack() },
                                 onUpdateSchedule = { status, month, notes ->
                                     viewModel.updateSchedule(id, status, month, notes)
@@ -439,7 +387,7 @@ private fun MainShellScreen(
         AlertDialog(
             onDismissRequest = { showSignOutDialog = false },
             title = { Text("Keluar dari Akun?") },
-            text = { Text("Masuk sebagai $userDisplayName. Anda dapat masuk kembali kapan saja untuk mengakses laporan inspeksi.") },
+            text = { Text("Masuk sebagai $userDisplayName. Anda dapat masuk kembali kapan saja untuk mengakses database bersama Kebun Sei Rokan.") },
             confirmButton = {
                 TextButton(
                     onClick = {

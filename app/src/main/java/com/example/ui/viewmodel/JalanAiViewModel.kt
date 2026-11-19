@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.net.ConnectException
@@ -61,15 +60,14 @@ sealed interface AnalysisUiState {
 
 class JalanAiViewModel(
     private val localRepository: LocalRoadInspectionRepository,
-    private val cloudRepository: RoadInspectionRepository?,
+    private val cloudRepository: RoadInspectionRepository,
     private val aiAnalyzer: RoadAiAnalyzer,
     private val offlineAnalyzer: OfflineFieldAnalyzer,
     private val frameExtractor: VideoFrameExtractor,
-    private val currentUserId: String?,
+    private val currentUserId: String,
+    private val currentUserName: String,
     isOnlineFlow: Flow<Boolean>
 ) : ViewModel() {
-
-    val isLocalFieldMode: Boolean = currentUserId.isNullOrBlank() || cloudRepository == null
 
     val isOnline: StateFlow<Boolean> = isOnlineFlow.stateIn(
         scope = viewModelScope,
@@ -87,57 +85,68 @@ class JalanAiViewModel(
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
     val inspectionsState: StateFlow<InspectionsUiState> =
-        if (!isLocalFieldMode && cloudRepository != null && !currentUserId.isNullOrBlank()) {
-            combine(
-                localRepository.unsyncedInspections,
-                cloudRepository.observeInspections(currentUserId)
-            ) { localUnsynced, cloudItems ->
-                val cloudIds = cloudItems.mapTo(HashSet()) { it.id }
-                val uniqueLocal = localUnsynced.filterNot { it.id in cloudIds }
-                InspectionsUiState.Success(uniqueLocal + cloudItems) as InspectionsUiState
-            }
-                .catch { error ->
-                    val firestoreError = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (firestoreError == null && error is CancellationException) throw error
-                    val rootError = firestoreError ?: error
-                    Log.w(TAG, "Error observing cloud inspections", rootError)
-                    emit(
-                        InspectionsUiState.Error(
-                            rootError.localizedMessage ?: "Gagal memuat riwayat inspeksi jalan."
-                        )
-                    )
-                }
-                .stateIn(
-                    scope = viewModelScope,
-                    started = SharingStarted.WhileSubscribed(5000L),
-                    initialValue = InspectionsUiState.Loading
-                )
-        } else {
-            localRepository.allInspections
-                .map<List<RoadInspection>, InspectionsUiState> { InspectionsUiState.Success(it) }
-                .catch { error ->
-                    if (error is CancellationException) throw error
-                    Log.w(TAG, "Error observing Room inspections", error)
-                    emit(
-                        InspectionsUiState.Error(
-                            error.localizedMessage ?: "Gagal memuat riwayat inspeksi lokal."
-                        )
-                    )
-                }
-                .stateIn(
-                    scope = viewModelScope,
-                    started = SharingStarted.WhileSubscribed(5000L),
-                    initialValue = InspectionsUiState.Loading
-                )
+        combine(
+            localRepository.unsyncedInspections,
+            cloudRepository.observeSharedInspections()
+        ) { localUnsynced, cloudItems ->
+            val cloudIds = cloudItems.mapTo(HashSet()) { it.id }
+            val uniqueLocal = localUnsynced.filterNot { it.id in cloudIds }
+            InspectionsUiState.Success(uniqueLocal + cloudItems) as InspectionsUiState
         }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                val rootError = firestoreError ?: error
+                Log.w(TAG, "Error observing shared cloud inspections", rootError)
+                emit(
+                    InspectionsUiState.Error(
+                        rootError.localizedMessage ?: "Gagal memuat data pengawasan jalan dari Cloud."
+                    )
+                )
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000L),
+                initialValue = InspectionsUiState.Loading
+            )
 
     private val _analysisState = MutableStateFlow<AnalysisUiState>(AnalysisUiState.Idle)
     val analysisState: StateFlow<AnalysisUiState> = _analysisState.asStateFlow()
 
     private val _actionMessage = MutableStateFlow<String?>(null)
     val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
+
+    init {
+        // Automatically flush any queued offline inspections into the shared Cloud database when online
+        viewModelScope.launch {
+            combine(isOnline, unsyncedLocalCount) { online, pending -> online to pending }
+                .collect { (online, pending) ->
+                    if (online && pending > 0 && !_isSyncing.value) {
+                        syncPendingSilently()
+                    }
+                }
+        }
+    }
+
+    private suspend fun syncPendingSilently() {
+        _isSyncing.value = true
+        try {
+            val result = localRepository.syncPendingToCloud(
+                userId = currentUserId,
+                inspectorName = currentUserName,
+                cloudRepository = cloudRepository
+            )
+            result.onSuccess { count ->
+                if (count > 0) {
+                    _actionMessage.value = "$count antrean offline berhasil diunggah ke Cloud Bersama."
+                }
+            }
+        } finally {
+            _isSyncing.value = false
+        }
+    }
 
     fun loadVideoFromUri(uri: Uri) {
         viewModelScope.launch {
@@ -209,7 +218,6 @@ class JalanAiViewModel(
         }
 
         val onlineNow = isOnline.value
-        val ownerId = currentUserId ?: "field_local"
 
         viewModelScope.launch {
             _analysisState.value = AnalysisUiState.AnalyzingWithAi(
@@ -219,21 +227,20 @@ class JalanAiViewModel(
 
             if (!onlineNow) {
                 runOfflineAnalysisInternal(
-                    ownerId = ownerId,
                     roadName = trimmedRoad,
                     segmentLocation = segmentLocation.trim(),
                     regionName = regionName.trim(),
                     trafficIntensity = trafficIntensity,
                     fieldNotes = fieldNotes.trim(),
                     extraction = extraction,
-                    notice = "Mode Offline Lapangan: analisis kondisi jalan & jadwal hujan diproses langsung di perangkat."
+                    notice = "Sinyal offline: analisis diproses di perangkat dan siap dikirim ke Cloud saat online."
                 )
                 return@launch
             }
 
             try {
                 val inspection = aiAnalyzer.analyzeRoadFootage(
-                    userId = ownerId,
+                    userId = currentUserId,
                     roadName = trimmedRoad,
                     segmentLocation = segmentLocation.trim(),
                     regionName = regionName.trim(),
@@ -241,7 +248,7 @@ class JalanAiViewModel(
                     videoSourceLabel = extraction.sourceLabel,
                     fieldNotes = fieldNotes.trim(),
                     frames = extraction.frames
-                )
+                ).copy(inspectorName = currentUserName)
                 _analysisState.value = AnalysisUiState.ResultReady(
                     extraction = extraction,
                     inspection = inspection,
@@ -253,14 +260,13 @@ class JalanAiViewModel(
                 if (isNetworkFailure(e)) {
                     Log.w(TAG, "Cloud AI unreachable, switching to offline plantation analyzer", e)
                     runOfflineAnalysisInternal(
-                        ownerId = ownerId,
                         roadName = trimmedRoad,
                         segmentLocation = segmentLocation.trim(),
                         regionName = regionName.trim(),
                         trafficIntensity = trafficIntensity,
                         fieldNotes = fieldNotes.trim(),
                         extraction = extraction,
-                        notice = "Koneksi internet terputus; beralih otomatis ke analisis offline lapangan."
+                        notice = "Koneksi internet terputus; beralih otomatis ke analisis perangkat."
                     )
                 } else {
                     Log.e(TAG, "AI analysis failed", e)
@@ -273,8 +279,44 @@ class JalanAiViewModel(
         }
     }
 
+    fun runOfflineAnalysis(
+        roadName: String,
+        segmentLocation: String,
+        regionName: String,
+        trafficIntensity: TrafficIntensity,
+        fieldNotes: String
+    ) {
+        val extraction = when (val current = _analysisState.value) {
+            is AnalysisUiState.FramesReady -> current.extraction
+            is AnalysisUiState.Error -> current.extraction
+            is AnalysisUiState.ResultReady -> current.extraction
+            else -> null
+        } ?: return
+
+        val trimmedRoad = roadName.trim()
+        if (trimmedRoad.length < 2) {
+            _actionMessage.value = "Masukkan nama ruas jalan minimal 2 karakter."
+            return
+        }
+
+        viewModelScope.launch {
+            _analysisState.value = AnalysisUiState.AnalyzingWithAi(
+                extraction = extraction,
+                isOfflineMode = true
+            )
+            runOfflineAnalysisInternal(
+                roadName = trimmedRoad,
+                segmentLocation = segmentLocation.trim(),
+                regionName = regionName.trim(),
+                trafficIntensity = trafficIntensity,
+                fieldNotes = fieldNotes.trim(),
+                extraction = extraction,
+                notice = "Analisis selesai — tekan Simpan untuk mengirim ke Cloud Bersama."
+            )
+        }
+    }
+
     private suspend fun runOfflineAnalysisInternal(
-        ownerId: String,
         roadName: String,
         segmentLocation: String,
         regionName: String,
@@ -285,7 +327,7 @@ class JalanAiViewModel(
     ) {
         try {
             val offlineInspection = offlineAnalyzer.analyzeOffline(
-                userId = ownerId,
+                userId = currentUserId,
                 roadName = roadName,
                 segmentLocation = segmentLocation,
                 regionName = regionName,
@@ -293,7 +335,7 @@ class JalanAiViewModel(
                 videoSourceLabel = extraction.sourceLabel,
                 fieldNotes = fieldNotes,
                 frames = extraction.frames
-            )
+            ).copy(inspectorName = currentUserName)
             _analysisState.value = AnalysisUiState.ResultReady(
                 extraction = extraction,
                 inspection = offlineInspection,
@@ -336,27 +378,7 @@ class JalanAiViewModel(
         viewModelScope.launch {
             _analysisState.value = current.copy(isSaving = true)
 
-            if (isLocalFieldMode || cloudRepository == null || currentUserId.isNullOrBlank()) {
-                val result = localRepository.saveInspection(
-                    inspection = current.inspection,
-                    userId = "field_local",
-                    isSyncedToCloud = false
-                )
-                result.fold(
-                    onSuccess = { localId ->
-                        _analysisState.value = current.copy(isSaving = false, savedDocumentId = localId)
-                        _actionMessage.value = "Laporan tersimpan permanen di database lokal (Room)."
-                    },
-                    onFailure = { error ->
-                        _analysisState.value = current.copy(isSaving = false)
-                        _actionMessage.value = error.localizedMessage ?: "Gagal menyimpan ke database lokal."
-                    }
-                )
-                return@launch
-            }
-
             if (!isOnline.value) {
-                // Save to local Room when field user is signed in but currently offline
                 val result = localRepository.saveInspection(
                     inspection = current.inspection,
                     userId = currentUserId,
@@ -365,53 +387,59 @@ class JalanAiViewModel(
                 result.fold(
                     onSuccess = { localId ->
                         _analysisState.value = current.copy(isSaving = false, savedDocumentId = localId)
-                        _actionMessage.value = "Offline: disimpan ke Room lokal & siap disinkronkan saat online."
+                        _actionMessage.value = "Sinyal offline: masuk antrean & otomatis dikirim ke Cloud Bersama saat online."
                     },
                     onFailure = { error ->
                         _analysisState.value = current.copy(isSaving = false)
-                        _actionMessage.value = error.localizedMessage ?: "Gagal menyimpan laporan lokal."
+                        _actionMessage.value = error.localizedMessage ?: "Gagal menyimpan antrean offline."
                     }
                 )
                 return@launch
             }
 
-            val result = cloudRepository.saveInspection(currentUserId, current.inspection)
+            val result = cloudRepository.saveInspection(
+                userId = currentUserId,
+                inspectorName = currentUserName,
+                inspection = current.inspection
+            )
             result.fold(
                 onSuccess = { docId ->
                     _analysisState.value = current.copy(isSaving = false, savedDocumentId = docId)
-                    _actionMessage.value = "Laporan & jadwal pemeliharaan tersimpan ke Cloud."
+                    _actionMessage.value = "Tersimpan ke Cloud Bersama — semua pengguna APK kini dapat melihatnya."
                 },
                 onFailure = { error ->
                     _analysisState.value = current.copy(isSaving = false)
-                    _actionMessage.value = error.localizedMessage ?: "Gagal menyimpan laporan."
+                    _actionMessage.value = error.localizedMessage ?: "Gagal menyimpan laporan ke Cloud."
                 }
             )
         }
     }
 
     fun syncLocalInspectionsToCloud() {
-        val uid = currentUserId ?: return
-        val cloudRepo = cloudRepository ?: return
         if (_isSyncing.value) return
         if (!isOnline.value) {
-            _actionMessage.value = "Tidak ada koneksi internet untuk sinkronisasi ke Cloud."
+            _actionMessage.value = "Tidak ada koneksi internet untuk sinkronisasi ke Cloud Bersama."
             return
         }
 
         viewModelScope.launch {
             _isSyncing.value = true
-            val result = localRepository.syncPendingToCloud(uid, cloudRepo)
+            val result = localRepository.syncPendingToCloud(
+                userId = currentUserId,
+                inspectorName = currentUserName,
+                cloudRepository = cloudRepository
+            )
             _isSyncing.value = false
             result.fold(
                 onSuccess = { count ->
                     _actionMessage.value = if (count > 0) {
-                        "$count laporan inspeksi lapangan berhasil disinkronkan ke Cloud."
+                        "$count laporan berhasil diunggah ke Cloud Bersama."
                     } else {
-                        "Semua laporan lokal sudah tersinkron."
+                        "Semua laporan sudah tersimpan di Cloud Bersama."
                     }
                 },
                 onFailure = { error ->
-                    _actionMessage.value = error.localizedMessage ?: "Gagal menyinkronkan data lokal."
+                    _actionMessage.value = error.localizedMessage ?: "Gagal menyinkronkan antrean ke Cloud."
                 }
             )
         }
@@ -428,7 +456,7 @@ class JalanAiViewModel(
         notes: String
     ) {
         viewModelScope.launch {
-            if (isLocalFieldMode || cloudRepository == null || currentUserId.isNullOrBlank() || inspectionId.startsWith("local_")) {
+            if (inspectionId.startsWith("local_")) {
                 val result = localRepository.updateMaintenanceSchedule(
                     inspectionId = inspectionId,
                     status = status,
@@ -437,7 +465,7 @@ class JalanAiViewModel(
                 )
                 result.fold(
                     onSuccess = {
-                        _actionMessage.value = "Jadwal pemeliharaan lokal (Room) diperbarui."
+                        _actionMessage.value = "Jadwal antrean offline diperbarui."
                     },
                     onFailure = { error ->
                         _actionMessage.value = error.localizedMessage ?: "Gagal memperbarui jadwal lokal."
@@ -455,7 +483,7 @@ class JalanAiViewModel(
             )
             result.fold(
                 onSuccess = {
-                    _actionMessage.value = "Jadwal pemeliharaan diperbarui."
+                    _actionMessage.value = "Jadwal pemeliharaan bersama di Cloud diperbarui."
                 },
                 onFailure = { error ->
                     _actionMessage.value = error.localizedMessage ?: "Gagal memperbarui jadwal."
@@ -466,15 +494,15 @@ class JalanAiViewModel(
 
     fun deleteInspection(inspectionId: String, onDeleted: () -> Unit = {}) {
         viewModelScope.launch {
-            if (isLocalFieldMode || cloudRepository == null || currentUserId.isNullOrBlank() || inspectionId.startsWith("local_")) {
+            if (inspectionId.startsWith("local_")) {
                 val result = localRepository.deleteInspection(inspectionId)
                 result.fold(
                     onSuccess = {
-                        _actionMessage.value = "Laporan inspeksi lokal dihapus."
+                        _actionMessage.value = "Antrean laporan dihapus."
                         onDeleted()
                     },
                     onFailure = { error ->
-                        _actionMessage.value = error.localizedMessage ?: "Gagal menghapus laporan lokal."
+                        _actionMessage.value = error.localizedMessage ?: "Gagal menghapus laporan."
                     }
                 )
                 return@launch
@@ -483,11 +511,11 @@ class JalanAiViewModel(
             val result = cloudRepository.deleteInspection(currentUserId, inspectionId)
             result.fold(
                 onSuccess = {
-                    _actionMessage.value = "Laporan inspeksi dihapus."
+                    _actionMessage.value = "Laporan inspeksi dihapus dari Cloud Bersama."
                     onDeleted()
                 },
                 onFailure = { error ->
-                    _actionMessage.value = error.localizedMessage ?: "Gagal menghapus laporan."
+                    _actionMessage.value = error.localizedMessage ?: "Hanya pembuat laporan yang dapat menghapus data ini."
                 }
             )
         }

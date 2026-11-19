@@ -96,12 +96,12 @@ import java.util.Locale
 @Composable
 fun AnalyzeVideoScreen(
     analysisState: AnalysisUiState,
-    isLocalFieldMode: Boolean,
     isOnline: Boolean,
     onLoadVideoUri: (Uri) -> Unit,
     onLoadImageUri: (Uri) -> Unit,
     onLoadLiveFrames: (frames: List<ExtractedFrame>, sourceLabel: String, resolution: String) -> Unit,
     onRunAiAnalysis: (roadName: String, segmentLocation: String, regionName: String, traffic: TrafficIntensity, notes: String) -> Unit,
+    onRunOfflineAnalysis: (roadName: String, segmentLocation: String, regionName: String, traffic: TrafficIntensity, notes: String) -> Unit,
     onSaveAnalysis: () -> Unit,
     onReset: () -> Unit,
     onOpenSavedDetail: (String) -> Unit,
@@ -371,12 +371,37 @@ fun AnalyzeVideoScreen(
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         )
                     ) {
-                        Text(
-                            text = analysisState.message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(16.dp)
-                        )
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = analysisState.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            if (analysisState.extraction != null) {
+                                Button(
+                                    onClick = {
+                                        onRunOfflineAnalysis(
+                                            roadName,
+                                            segmentLocation,
+                                            regionName,
+                                            trafficIntensity,
+                                            fieldNotes
+                                        )
+                                    },
+                                    enabled = roadName.trim().length >= 2,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("fallback_offline_analysis_button"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("Gunakan Analisis Offline Perangkat")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -600,9 +625,10 @@ fun AnalyzeVideoScreen(
                                         Icon(Icons.Filled.Save, contentDescription = null)
                                         Spacer(Modifier.width(8.dp))
                                         Text(
-                                            text = when {
-                                                isLocalFieldMode || !isOnline -> "Simpan ke Database Lokal (Room)"
-                                                else -> "Simpan Laporan & Jadwal Preventif"
+                                            text = if (!isOnline) {
+                                                "Simpan Antrean (Auto-Sync Cloud)"
+                                            } else {
+                                                "Simpan ke Database Cloud Bersama"
                                             }
                                         )
                                     }

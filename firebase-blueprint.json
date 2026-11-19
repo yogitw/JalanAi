@@ -2,12 +2,21 @@
   "entities": {
     "RoadInspection": {
       "title": "RoadInspection",
-      "description": "AI road surveillance video analysis record with detected pavement damages, 12-month PCI degradation & Google rainfall forecast, and preventive maintenance schedule.",
+      "description": "Shared Kebun Sei Rokan AI road surveillance inspection record with detected damages, 12-month PCI degradation & Google rainfall forecast, and preventive maintenance schedule.",
       "type": "object",
       "properties": {
         "userId": {
           "type": "string",
-          "description": "Authenticated Firebase user UID owning this road inspection."
+          "description": "Authenticated Firebase user UID of the field inspector who created this report."
+        },
+        "estateId": {
+          "type": "string",
+          "enum": ["kebun_sei_rokan"],
+          "description": "Shared plantation estate scope identifier."
+        },
+        "inspectorName": {
+          "type": "string",
+          "description": "Display name of the inspector who submitted the report (no email/phone PII)."
         },
         "roadName": {
           "type": "string",
@@ -15,7 +24,7 @@
         },
         "segmentLocation": {
           "type": "string",
-          "description": "Optional kilometer marker or segment location description."
+          "description": "Afdeling and block location label in Kebun Sei Rokan."
         },
         "regionName": {
           "type": "string",
@@ -109,6 +118,8 @@
       },
       "required": [
         "userId",
+        "estateId",
+        "inspectorName",
         "roadName",
         "segmentLocation",
         "regionName",
@@ -136,11 +147,11 @@
     }
   },
   "firestore": {
-    "/users/{userId}/inspections/{inspectionId}": {
+    "/inspections/{inspectionId}": {
       "schema": {
         "$ref": "#/entities/RoadInspection"
       },
-      "description": "User-scoped road surveillance AI inspection reports and rainfall-aware preventive maintenance schedules."
+      "description": "Shared Kebun Sei Rokan road surveillance AI inspection reports visible to all authenticated APK users."
     }
   }
 }

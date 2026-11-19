@@ -7,6 +7,7 @@ data class SeiRokanAfdeling(
 )
 
 object SeiRokanCatalog {
+    const val ESTATE_ID = "kebun_sei_rokan"
     const val ESTATE_NAME = "Kebun Sei Rokan"
     const val ESTATE_REGION = "Kebun Sei Rokan, Rokan Hulu, Riau"
 

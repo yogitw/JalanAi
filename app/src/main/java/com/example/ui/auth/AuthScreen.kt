@@ -183,8 +183,7 @@ fun signOutUser(
 
 @Composable
 fun AuthScreen(
-    onAuthSuccess: () -> Unit,
-    onEnterDemoMode: () -> Unit
+    onAuthSuccess: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -366,21 +365,6 @@ fun AuthScreen(
                             style = MaterialTheme.typography.labelLarge
                         )
                     }
-                }
-
-                androidx.compose.material3.OutlinedButton(
-                    onClick = onEnterDemoMode,
-                    enabled = !isLoading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("demo_mode_button"),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.auth_demo_button),
-                        style = MaterialTheme.typography.labelLarge
-                    )
                 }
 
                 Text(

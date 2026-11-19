@@ -17,6 +17,7 @@ import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -100,15 +101,44 @@ class RoadAiAnalyzer {
         )
     }
 
+    private val rainfallSearchFallbackModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.5-flash-lite",
+            tools = listOf(Tool.googleSearch())
+        )
+    }
+
+    private val structuredConfig = generationConfig {
+        responseMimeType = "application/json"
+        responseSchema = analysisSchema
+        temperature = 0.2f
+    }
+
     private val model by lazy {
         Firebase.ai.generativeModel(
             modelName = "gemini-3.8-flash",
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = analysisSchema
-                temperature = 0.2f
-            }
+            generationConfig = structuredConfig
         )
+    }
+
+    private val fallbackModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.5-flash-lite",
+            generationConfig = structuredConfig
+        )
+    }
+
+    private fun isTransientOverloadError(throwable: Throwable): Boolean {
+        val msg = generateSequence(throwable) { it.cause }
+            .mapNotNull { it.message?.lowercase(Locale.US) }
+            .joinToString(" ")
+        return msg.contains("high demand") ||
+            msg.contains("overloaded") ||
+            msg.contains("unavailable") ||
+            msg.contains("resource exhausted") ||
+            msg.contains("503") ||
+            msg.contains("429") ||
+            msg.contains("try again later")
     }
 
     private suspend fun fetchGoogleRainfallContext(
@@ -124,7 +154,18 @@ class RoadAiAnalyzer {
 
         return try {
             val searchResponse = withTimeout(25_000L) {
-                rainfallSearchModel.generateContent(searchPrompt)
+                try {
+                    rainfallSearchModel.generateContent(searchPrompt)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (isTransientOverloadError(e)) {
+                        Log.w(TAG, "Primary rainfall search model overloaded, retrying with gemini-3.5-flash-lite")
+                        rainfallSearchFallbackModel.generateContent(searchPrompt)
+                    } else {
+                        throw e
+                    }
+                }
             }
             val text = searchResponse.text.orEmpty().trim()
             val groundingMeta = searchResponse.candidates.firstOrNull()?.groundingMetadata
@@ -216,17 +257,34 @@ class RoadAiAnalyzer {
             appendLine("Gunakan Bahasa Indonesia yang profesional, ringkas, dan akurat.")
         }
 
+        val requestContent = content {
+            frames.forEach { frame ->
+                text("Frame #${frame.index} (waktu ${frame.formattedTimestamp}):")
+                image(frame.bitmap)
+            }
+            text(promptText)
+        }
+
         try {
             val response = withTimeout(60_000L) {
-                model.generateContent(
-                    content {
-                        frames.forEach { frame ->
-                            text("Frame #${frame.index} (waktu ${frame.formattedTimestamp}):")
-                            image(frame.bitmap)
-                        }
-                        text(promptText)
+                try {
+                    model.generateContent(requestContent)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (firstError: Exception) {
+                    if (!isTransientOverloadError(firstError)) throw firstError
+                    Log.w(TAG, "gemini-3.8-flash high demand, retrying briefly...", firstError)
+                    delay(1_200L)
+                    try {
+                        model.generateContent(requestContent)
+                    } catch (e2: CancellationException) {
+                        throw e2
+                    } catch (secondError: Exception) {
+                        if (!isTransientOverloadError(secondError)) throw secondError
+                        Log.w(TAG, "gemini-3.8-flash still overloaded, falling back to gemini-3.5-flash-lite")
+                        fallbackModel.generateContent(requestContent)
                     }
-                )
+                }
             }
 
             val rawJson = response.text

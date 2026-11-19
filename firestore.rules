@@ -10,10 +10,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -26,10 +22,10 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isValidRoadInspection(data, userId) {
-      return data.userId is string &&
-             data.userId == userId &&
-             data.userId == request.auth.uid &&
+    function isValidRoadInspection(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.estateId == 'kebun_sei_rokan' &&
+             data.inspectorName is string && data.inspectorName.size() <= 60 &&
              data.roadName is string && data.roadName.size() >= 2 && data.roadName.size() <= 120 &&
              data.segmentLocation is string && data.segmentLocation.size() <= 120 &&
              data.regionName is string && data.regionName.size() <= 100 &&
@@ -57,14 +53,23 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
-    match /users/{userId}/inspections/{inspectionId} {
-      allow get: if isOwner(userId) && isValidId(inspectionId);
-      allow list: if isOwner(userId);
+    // Shared Kebun Sei Rokan inspections collection: all authenticated APK users
+    // querying estateId == 'kebun_sei_rokan' can view incoming reports and update
+    // maintenance schedule progress, while deletion stays restricted to the creator.
+    match /inspections/{inspectionId} {
+      allow get: if isSignedIn() &&
+                    isValidId(inspectionId) &&
+                    existing().estateId == 'kebun_sei_rokan';
 
-      allow create: if isOwner(userId) &&
+      allow list: if isSignedIn() &&
+                     existing().estateId == 'kebun_sei_rokan';
+
+      allow create: if isSignedIn() &&
                        isValidId(inspectionId) &&
+                       incoming().userId == request.auth.uid &&
                        incoming().keys().hasAll([
-                         'userId', 'roadName', 'segmentLocation', 'regionName', 'trafficIntensity',
+                         'userId', 'estateId', 'inspectorName',
+                         'roadName', 'segmentLocation', 'regionName', 'trafficIntensity',
                          'videoSourceLabel', 'framesAnalyzed', 'roadSummary', 'pciScore',
                          'iriEstimate', 'conditionCategory', 'optimalMaintenanceMonth',
                          'urgencyWindow', 'preventiveMethod', 'maintenanceRationale',
@@ -73,7 +78,8 @@ service cloud.firestore {
                          'damages', 'forecast', 'createdAt', 'updatedAt'
                        ]) &&
                        incoming().keys().hasOnly([
-                         'userId', 'roadName', 'segmentLocation', 'regionName', 'trafficIntensity',
+                         'userId', 'estateId', 'inspectorName',
+                         'roadName', 'segmentLocation', 'regionName', 'trafficIntensity',
                          'videoSourceLabel', 'framesAnalyzed', 'roadSummary', 'pciScore',
                          'iriEstimate', 'conditionCategory', 'optimalMaintenanceMonth',
                          'urgencyWindow', 'preventiveMethod', 'maintenanceRationale',
@@ -81,18 +87,23 @@ service cloud.firestore {
                          'costSavingsPercent', 'maintenanceStatus', 'maintenanceNotes',
                          'damages', 'forecast', 'createdAt', 'updatedAt'
                        ]) &&
-                       isValidRoadInspection(incoming(), userId);
+                       isValidRoadInspection(incoming());
 
-      allow update: if isOwner(userId) &&
+      allow update: if isSignedIn() &&
                        isValidId(inspectionId) &&
-                       isValidRoadInspection(incoming(), userId) &&
+                       existing().estateId == 'kebun_sei_rokan' &&
+                       isValidRoadInspection(incoming()) &&
                        incoming().userId == existing().userId &&
+                       incoming().estateId == existing().estateId &&
+                       incoming().inspectorName == existing().inspectorName &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'maintenanceStatus', 'optimalMaintenanceMonth', 'maintenanceNotes', 'updatedAt'
                        ]);
 
-      allow delete: if isOwner(userId) && isValidId(inspectionId);
+      allow delete: if isSignedIn() &&
+                       isValidId(inspectionId) &&
+                       existing().userId == request.auth.uid;
     }
   }
 }

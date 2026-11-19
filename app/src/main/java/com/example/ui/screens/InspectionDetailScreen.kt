@@ -63,6 +63,7 @@ import java.util.Locale
 @Composable
 fun InspectionDetailScreen(
     inspection: RoadInspection?,
+    canDelete: Boolean,
     onBack: () -> Unit,
     onUpdateSchedule: (status: MaintenanceStatus, targetMonth: String, notes: String) -> Unit,
     onDelete: () -> Unit
@@ -90,7 +91,7 @@ fun InspectionDetailScreen(
                     }
                 },
                 actions = {
-                    if (inspection != null) {
+                    if (inspection != null && canDelete) {
                         IconButton(
                             onClick = { showDeleteConfirm = true },
                             modifier = Modifier.testTag("detail_delete_button")
@@ -200,6 +201,13 @@ fun InspectionDetailScreen(
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    if (inspection.inspectorName.isNotBlank()) {
+                                        Text(
+                                            text = "Pelapor: ${inspection.inspectorName}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                             Text(

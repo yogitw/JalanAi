@@ -96,13 +96,18 @@ class LocalRoadInspectionRepository(
 
     suspend fun syncPendingToCloud(
         userId: String,
+        inspectorName: String,
         cloudRepository: RoadInspectionRepository
     ): Result<Int> {
         return try {
             val pending = dao.getUnsyncedInspections()
             var syncedCount = 0
             for (entity in pending) {
-                val uploadResult = cloudRepository.saveInspection(userId, entity.toDomain())
+                val uploadResult = cloudRepository.saveInspection(
+                    userId = userId,
+                    inspectorName = inspectorName,
+                    inspection = entity.toDomain()
+                )
                 if (uploadResult.isSuccess) {
                     dao.markSynced(entity.id, userId)
                     syncedCount++

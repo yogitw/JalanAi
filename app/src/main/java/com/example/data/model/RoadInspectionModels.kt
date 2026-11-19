@@ -95,6 +95,8 @@ data class DegradationPoint(
 data class RoadInspection(
     @DocumentId val id: String = "",
     val userId: String = "",
+    val estateId: String = SeiRokanCatalog.ESTATE_ID,
+    val inspectorName: String = "",
     val roadName: String = "",
     val segmentLocation: String = "",
     val regionName: String = "",
@@ -119,8 +121,10 @@ data class RoadInspection(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
-    fun toCreateMap(uid: String): Map<String, Any> = mapOf(
+    fun toCreateMap(uid: String, authorName: String = inspectorName): Map<String, Any> = mapOf(
         "userId" to uid,
+        "estateId" to estateId.ifBlank { SeiRokanCatalog.ESTATE_ID },
+        "inspectorName" to authorName.trim().ifBlank { "Petugas Kebun" }.take(60),
         "roadName" to roadName.trim().take(120),
         "segmentLocation" to segmentLocation.trim().take(120),
         "regionName" to regionName.trim().take(100),

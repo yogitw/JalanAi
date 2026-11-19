@@ -10,20 +10,23 @@ let testEnv;
 const PROJECT_ID = process.env.GCP_PROJECT || "demo-no-project";
 const ALICE_UID = "alice_123";
 const BOB_UID = "bob_456";
+const ESTATE_ID = "kebun_sei_rokan";
 
 const [emulatorHost, emulatorPortStr] = (process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8085").split(":");
 const emulatorPort = parseInt(emulatorPortStr, 10);
 
-function validInspectionPayload(uid, createdDate, updatedDate) {
+function validInspectionPayload(uid, createdDate, updatedDate, overrides = {}) {
   return {
     userId: uid,
-    roadName: "Jl. Angkut Afdeling III",
-    segmentLocation: "KM 04+200 - KM 05+800",
-    regionName: "Pekanbaru, Riau",
+    estateId: ESTATE_ID,
+    inspectorName: "Mandor Lapangan",
+    roadName: "Jalan Angkut TBS Blok I4",
+    segmentLocation: "Kebun Sei Rokan • Afdeling I • Blok I4",
+    regionName: "Kebun Sei Rokan, Rokan Hulu, Riau",
     trafficIntensity: "TINGGI",
-    videoSourceLabel: "CCTV_Kebun_01.mp4 (18 dtk)",
+    videoSourceLabel: "Kamera Live (10 dtk)",
     framesAnalyzed: 5,
-    roadSummary: "Terdeteksi retak buaya dan dua lubang sedang di lajur kiri.",
+    roadSummary: "Terdeteksi retak alur dan dua lubang sedang di badan jalan angkut TBS.",
     pciScore: 62,
     iriEstimate: 3.8,
     conditionCategory: "SEDANG",
@@ -32,7 +35,7 @@ function validInspectionPayload(uid, createdDate, updatedDate) {
     preventiveMethod: "Penambalan lubang (patching) dan perataan grader.",
     maintenanceRationale: "Curah hujan tinggi Nov-Jan; Mei memasuki awal musim kemarau sebelum PCI turun di bawah 50.",
     rainfallSummary: "Curah hujan tinggi Nov-Jan (260-310 mm/bln), menurun mulai Mei (120 mm/bln).",
-    rainfallSourceNote: "Google Search Grounding: Pola Curah Hujan Riau",
+    rainfallSourceNote: "Google Search Grounding: Pola Curah Hujan Rokan Hulu Riau",
     costSavingsPercent: 48,
     maintenanceStatus: "TERJADWAL",
     maintenanceNotes: "",
@@ -54,6 +57,7 @@ function validInspectionPayload(uid, createdDate, updatedDate) {
     ],
     createdAt: createdDate,
     updatedAt: updatedDate,
+    ...overrides,
   };
 }
 
@@ -81,89 +85,97 @@ beforeEach(async () => {
   }
 });
 
-test("Unauthenticated user: cannot read or write inspections", async () => {
+test("Unauthenticated user: cannot read or write shared inspections", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   const now = new Date(Date.now() - 1000);
-  await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("inspections").get());
   await assertFails(
-    unauthDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_1")
+    unauthDb.collection("inspections").where("estateId", "==", ESTATE_ID).get()
+  );
+  await assertFails(
+    unauthDb.collection("inspections").doc("insp_1")
       .set(validInspectionPayload(ALICE_UID, now, now))
   );
 });
 
-test("Authenticated owner: valid create, list, partial schedule update, and delete succeed", async () => {
+test("Shared visibility: Alice creates inspection, Bob sees it via estateId query and can update schedule; only Alice can delete", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
   const created = new Date(Date.now() - 5000);
 
+  // Empty filtered list succeeds
   await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_1")
+    bobDb.collection("inspections").where("estateId", "==", ESTATE_ID).get()
+  );
+
+  // Alice creates shared inspection
+  await assertSucceeds(
+    aliceDb.collection("inspections").doc("insp_1")
       .set(validInspectionPayload(ALICE_UID, created, created))
   );
 
+  // Bob can read and list shared Kebun Sei Rokan inspections
+  await assertSucceeds(bobDb.collection("inspections").doc("insp_1").get());
   await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").get()
+    bobDb.collection("inspections").where("estateId", "==", ESTATE_ID).get()
   );
 
+  // Unfiltered list without estateId must fail
+  await assertFails(bobDb.collection("inspections").get());
+
+  // Bob (another team member) can update maintenance schedule fields
   await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_1").update({
+    bobDb.collection("inspections").doc("insp_1").update({
       maintenanceStatus: "PROSES",
       optimalMaintenanceMonth: "Desember 2026",
-      maintenanceNotes: "Tim survei lapangan sudah dijadwalkan.",
+      maintenanceNotes: "Tim grader sudah menuju Blok I4.",
       updatedAt: new Date(Date.now() - 1000),
     })
   );
 
-  await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_1").delete()
-  );
+  // Bob cannot delete Alice's inspection
+  await assertFails(bobDb.collection("inspections").doc("insp_1").delete());
+
+  // Alice (creator) can delete her inspection
+  await assertSucceeds(aliceDb.collection("inspections").doc("insp_1").delete());
 });
 
-test("Security bounds: reject cross-user access, ghost fields, immutable mutation, invalid status, future timestamp", async () => {
-  const created = new Date(Date.now() - 10000);
-  await testEnv.withSecurityRulesDisabled(async (context) => {
-    await context.firestore()
-      .collection("users").doc(BOB_UID).collection("inspections").doc("bob_insp")
-      .set(validInspectionPayload(BOB_UID, created, created));
-  });
-
+test("Security bounds: reject spoofing userId, wrong estateId, ghost fields, immutable mutation, invalid status, future timestamp", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const created = new Date(Date.now() - 10000);
 
-  // Cross-user read/write/delete denied
+  // Reject userId spoofing
   await assertFails(
-    aliceDb.collection("users").doc(BOB_UID).collection("inspections").doc("bob_insp").get()
-  );
-  await assertFails(
-    aliceDb.collection("users").doc(BOB_UID).collection("inspections").get()
-  );
-  await assertFails(
-    aliceDb.collection("users").doc(BOB_UID).collection("inspections").doc("bob_insp").update({
-      maintenanceStatus: "SELESAI",
-      updatedAt: new Date(Date.now() - 1000),
-    })
+    aliceDb.collection("inspections").doc("spoof_1")
+      .set(validInspectionPayload(BOB_UID, created, created))
   );
 
-  // Ghost @DocumentId `id` field rejected
-  const withId = validInspectionPayload(ALICE_UID, created, created);
-  withId.id = "insp_2";
+  // Reject wrong estateId
   await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_2").set(withId)
+    aliceDb.collection("inspections").doc("wrong_estate")
+      .set(validInspectionPayload(ALICE_UID, created, created, { estateId: "other_estate" }))
+  );
+
+  // Reject ghost @DocumentId `id` field
+  await assertFails(
+    aliceDb.collection("inspections").doc("ghost_id")
+      .set(validInspectionPayload(ALICE_UID, created, created, { id: "ghost_id" }))
   );
 
   // Create valid doc for update negative tests
   await assertSucceeds(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_3")
+    aliceDb.collection("inspections").doc("insp_3")
       .set(validInspectionPayload(ALICE_UID, created, created))
   );
 
-  // Reject mutating immutable createdAt or pciScore
+  // Reject mutating immutable createdAt, userId, estateId, or pciScore
   await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_3").update({
+    aliceDb.collection("inspections").doc("insp_3").update({
       createdAt: new Date(Date.now() - 1000),
       updatedAt: new Date(Date.now() - 1000),
     })
   );
   await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_3").update({
+    aliceDb.collection("inspections").doc("insp_3").update({
       pciScore: 99,
       updatedAt: new Date(Date.now() - 1000),
     })
@@ -171,7 +183,7 @@ test("Security bounds: reject cross-user access, ghost fields, immutable mutatio
 
   // Reject invalid maintenanceStatus enum
   await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_3").update({
+    aliceDb.collection("inspections").doc("insp_3").update({
       maintenanceStatus: "INVALID_STATUS",
       updatedAt: new Date(Date.now() - 1000),
     })
@@ -179,7 +191,7 @@ test("Security bounds: reject cross-user access, ghost fields, immutable mutatio
 
   // Reject future timestamp
   await assertFails(
-    aliceDb.collection("users").doc(ALICE_UID).collection("inspections").doc("insp_4")
+    aliceDb.collection("inspections").doc("insp_4")
       .set(validInspectionPayload(ALICE_UID, new Date(Date.now() + 60000), new Date(Date.now() + 60000)))
   );
 });

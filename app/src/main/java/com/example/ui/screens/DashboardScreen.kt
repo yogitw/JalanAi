@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.WarningAmber
@@ -72,7 +71,6 @@ import com.example.ui.viewmodel.InspectionsUiState
 @Composable
 fun DashboardScreen(
     inspectionsState: InspectionsUiState,
-    isLocalFieldMode: Boolean,
     isOnline: Boolean,
     unsyncedLocalCount: Int,
     isSyncing: Boolean,
@@ -163,12 +161,11 @@ fun DashboardScreen(
                 ) {
                     item {
                         DashboardHeroBanner(
-                            isLocalFieldMode = isLocalFieldMode,
                             onNavigateToAnalyze = onNavigateToAnalyze
                         )
                     }
 
-                    if (!isLocalFieldMode && unsyncedLocalCount > 0) {
+                    if (unsyncedLocalCount > 0) {
                         item {
                             LocalSyncBannerCard(
                                 unsyncedCount = unsyncedLocalCount,
@@ -214,14 +211,14 @@ fun DashboardScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = if (isLocalFieldMode) Icons.Filled.Save else Icons.Filled.CloudDone,
+                                                imageVector = Icons.Filled.CloudDone,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(14.dp),
                                                 tint = MaterialTheme.colorScheme.primary
                                             )
                                             Spacer(Modifier.width(4.dp))
                                             Text(
-                                                text = if (isLocalFieldMode) "Room Lokal" else "Cloud + Lokal",
+                                                text = "Cloud Bersama",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -267,7 +264,6 @@ fun DashboardScreen(
 
 @Composable
 private fun DashboardHeroBanner(
-    isLocalFieldMode: Boolean,
     onNavigateToAnalyze: () -> Unit
 ) {
     Card(
@@ -294,11 +290,7 @@ private fun DashboardHeroBanner(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (isLocalFieldMode) {
-                            "KEBUN SEI ROKAN • AFDELING I–VIII • ROOM OFFLINE"
-                        } else {
-                            "KEBUN SEI ROKAN • AFDELING I–VIII • CLOUD SYNC"
-                        },
+                        text = "KEBUN SEI ROKAN • DATABASE CLOUD BERSAMA",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFFBBF24),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -371,16 +363,16 @@ private fun LocalSyncBannerCard(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "$unsyncedCount Data Lapangan Lokal (Room)",
+                    text = "$unsyncedCount Antrean Belum Terunggah",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Text(
                     text = if (isOnline) {
-                        "Siap diunggah ke akun Cloud Firestore Anda."
+                        "Sedang diunggah ke Database Bersama agar terlihat oleh semua APK."
                     } else {
-                        "Tersimpan aman di perangkat. Aktifkan internet untuk sinkronisasi."
+                        "Menunggu sinyal internet untuk otomatis masuk ke Database Bersama."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
